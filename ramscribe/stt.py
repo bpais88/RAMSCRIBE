@@ -15,12 +15,14 @@ class Segment:
     t_start: float
     t_end: float
     text: str
+    speaker: str = "me"  # channel-derived; "me" (mic) in MVP, "them" for system audio
 
     def as_dict(self) -> dict:
         return {
             "t_start": round(self.t_start, 3),
             "t_end": round(self.t_end, 3),
             "text": self.text.strip(),
+            "speaker": self.speaker,
         }
 
 
@@ -81,10 +83,15 @@ class SlidingWindowTranscriber:
     segments are returned as provisional text that may still change.
     """
 
-    def __init__(self, model, sample_rate: int = 16000, overlap_s: float = 5.0):
+    def __init__(self, model, sample_rate: int = 16000, overlap_s: float = 5.0,
+                 speaker: str = "me"):
         self._model = model
         self.sample_rate = sample_rate
         self.overlap_s = overlap_s
+        # Speaker is a property of the *channel*, not the voice: every segment
+        # this instance emits is stamped with it. The mic pipeline is "me"; a
+        # second (system-audio) pipeline would be "them". No voice analysis.
+        self.speaker = speaker
         self.finalized_until = 0.0  # absolute seconds already emitted as final
 
     def process(self, audio, window_start: float, window_end: float,
@@ -123,7 +130,7 @@ class SlidingWindowTranscriber:
             if abs_end <= self.finalized_until + 1e-6:
                 continue
             if abs_end <= provisional_cutoff:
-                new_final.append(Segment(abs_start, abs_end, text))
+                new_final.append(Segment(abs_start, abs_end, text, speaker=self.speaker))
                 max_final_end = max(max_final_end, abs_end)
             else:
                 provisional_parts.append(text)

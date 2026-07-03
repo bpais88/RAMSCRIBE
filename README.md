@@ -78,8 +78,12 @@ Finalized segments are appended to `transcripts/session-<timestamp>.jsonl`, one
 JSON object per segment:
 
 ```json
-{"t_start": 3.12, "t_end": 5.44, "text": "hello, this is a test"}
+{"t_start": 3.12, "t_end": 5.44, "text": "hello, this is a test", "speaker": "me"}
 ```
+
+`speaker` is always `"me"` in the mic-only MVP. The field exists from day one so
+the dual-channel stretch (below) slots in with no schema change — and it is
+derived from the audio *channel*, never from analysing the voice.
 
 ## Verify the boundary
 
@@ -109,23 +113,38 @@ every code path that could conceivably persist audio.
 | `--duration N` | Auto-stop after N seconds (0 = until Ctrl+C) |
 | `--no-ui` | Plain stdout status instead of the rich UI |
 
-## Stretch: transcribing system audio (macOS)
+## Stretch (not built in the MVP): dual-channel VoIP capture
 
-The MVP captures the **default microphone** only. To transcribe a real Zoom call
-on macOS, install a loopback device such as
-[BlackHole](https://github.com/ExistentialAudio/BlackHole)
-(`brew install blackhole-2ch`), route system output to it (via a Multi-Output
-Device in Audio MIDI Setup so you can still hear the call), then point RamScribe
-at it:
+This is the upgrade that turns the demo into the full "Bliro pattern" —
+transcribe a real VoIP/Zoom call with **speaker attribution from channel
+metadata, not voice biometrics**. It is planned, not yet implemented.
 
-```bash
-make list-devices                 # find the BlackHole input index
-python -m ramscribe --device <N>  # transcribe system audio, still RAM-only
-```
+The design: run two `sounddevice` streams in parallel — the microphone (you) and
+a loopback device carrying system audio (all remote parties). Each stream feeds
+its **own** independent ring buffer + sliding-window transcriber (two instances
+of the existing pipeline — channels are never mixed into one buffer). Mic
+segments are stamped `speaker: "me"`, system segments `speaker: "them"`. The UI
+merges both streams by timestamp into one interleaved transcript with coloured
+`me:` / `them:` prefixes, and the status bar shows buffer stats for both
+channels. `make audit` and the persistence test must pass unchanged with both
+streams live.
 
-Nothing else changes — the same ring buffer and boundary rules apply.
+Planned flags: `--device-mic <name>` and `--device-system <name>`. On macOS the
+loopback is [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole)
+(`brew install blackhole-2ch`), paired with a Multi-Output Device in Audio MIDI
+Setup so you still hear the call.
+
+**Why this matters.** Speaker identity comes from *which channel the audio
+arrived on*, never from analysing the voice itself — which keeps biometric
+(GDPR Art. 9) processing entirely out of the system. Honest platform boundary:
+this OS-level tap works for anything playing through the desktop (Zoom, Teams,
+any softphone), but mobile OSes prohibit apps from tapping phone/VoIP call
+audio — capturing mobile calls requires a server-side telephony approach (e.g.
+Twilio Media Streams) feeding the same RAM-only pipeline.
 
 ## Non-goals
 
-No system-audio/loopback capture built in, no meeting-bot, no diarization/speaker
-labels, no cloud APIs, no accounts, no GUI beyond the terminal.
+No system-audio/loopback capture in the MVP itself (it is the defined stretch
+above), no meeting-bot, and **no voice-based diarization of any kind — ever**,
+including in the stretch: speaker labels come exclusively from channel metadata.
+No cloud APIs, no accounts, no packaging/installer, no GUI beyond the terminal.

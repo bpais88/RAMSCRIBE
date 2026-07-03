@@ -24,9 +24,16 @@ class TranscriptView:
         self._rms = 0.0
         self._transcript_path = ""
 
+    # Per-speaker colours. Speaker comes from the audio *channel*, never voice.
+    _SPEAKER_STYLES = {"me": "bold cyan", "them": "bold magenta"}
+
     def add_final(self, segment) -> None:
-        ts = f"[{segment.t_start:6.1f}s]"
-        self._final_lines.append(f"{ts} {segment.text}")
+        speaker = getattr(segment, "speaker", "me")
+        line = Text()
+        line.append(f"[{segment.t_start:6.1f}s] ", style="dim")
+        line.append(f"{speaker}: ", style=self._SPEAKER_STYLES.get(speaker, "bold"))
+        line.append(segment.text)
+        self._final_lines.append(line)
         if len(self._final_lines) > self.max_lines:
             self._final_lines = self._final_lines[-self.max_lines:]
         self._finalized_count += 1
@@ -47,7 +54,8 @@ class TranscriptView:
         if not tail and not self._provisional:
             body.append("listening…\n", style="dim")
         for line in tail:
-            body.append(line + "\n")
+            body.append_text(line)
+            body.append("\n")
         if self._provisional:
             body.append(self._provisional, style="dim italic")
             body.append("  ▌\n", style="dim")
