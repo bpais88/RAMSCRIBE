@@ -49,10 +49,13 @@ Requires Python 3.11+ and PortAudio (for microphone capture).
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# or plain pip
-python -m venv .venv && source .venv/bin/activate
+# or plain pip (use python3 on macOS — there is no bare `python`)
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
+
+Once the venv is activated, bare `python`/`pip` and `make run` all resolve to
+the venv interpreter. Outside a venv on macOS, use `python3`.
 
 On first run, `faster-whisper` downloads the `small` model weights (~460 MB) to
 its cache. Those are **model weights, not audio** — audio never lands on disk.
