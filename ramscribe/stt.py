@@ -63,15 +63,14 @@ class StubTranscriber:
         self.language = language
 
     def transcribe(self, audio, sample_rate: int = 16000) -> list[tuple[float, float, str]]:
-        import numpy as np
+        from .config import rms
 
         n = len(audio)
         out: list[tuple[float, float, str]] = []
         secs = int(n // sample_rate)
         for i in range(secs):
             chunk = audio[i * sample_rate:(i + 1) * sample_rate]
-            rms = float(np.sqrt(np.mean(np.square(chunk)))) if len(chunk) else 0.0
-            out.append((float(i), float(i + 1), f"[synthetic audio rms={rms:.3f}]"))
+            out.append((float(i), float(i + 1), f"[synthetic audio rms={rms(chunk):.3f}]"))
         return out
 
 

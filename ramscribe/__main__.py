@@ -16,15 +16,14 @@ import time
 from datetime import datetime
 
 from .capture import MicCapture, SyntheticCapture
+from .config import MAX_SECONDS, SAMPLE_RATE
 from .ring import RingBuffer
 from .sink import TranscriptSink
 from .stt import SlidingWindowTranscriber, StubTranscriber
 from .ui import TranscriptView
 
-SAMPLE_RATE = 16000
-MAX_SECONDS = 30.0
-TRANSCRIBE_EVERY = 3.0
-OVERLAP_SECONDS = 5.0
+TRANSCRIBE_EVERY = 3.0  # seconds between transcription passes
+OVERLAP_SECONDS = 5.0   # sliding-window context overlap
 
 
 def _timestamp() -> str:
@@ -68,18 +67,20 @@ def run(args) -> int:
     view = TranscriptView()
 
     stop = threading.Event()
-    started_at = [0.0]
+
+    def emit(final_segs, provisional):
+        # The one place a finished transcription pass turns into output.
+        for seg in final_segs:
+            sink.write_segment(seg)
+            view.add_final(seg)
+        view.set_provisional(provisional)
 
     def transcription_loop():
         # Wait until we have a little audio before the first pass.
         while not stop.is_set():
             audio, w_start, w_end = ring.snapshot()
             if w_end - w_start >= 1.0:
-                final_segs, provisional = transcriber.process(audio, w_start, w_end)
-                for seg in final_segs:
-                    sink.write_segment(seg)
-                    view.add_final(seg)
-                view.set_provisional(provisional)
+                emit(*transcriber.process(audio, w_start, w_end))
             # Sleep in small slices so shutdown is responsive.
             for _ in range(int(TRANSCRIBE_EVERY * 10)):
                 if stop.is_set():
@@ -90,48 +91,53 @@ def run(args) -> int:
         audio, w_start, w_end = ring.snapshot()
         if w_end - w_start > 0:
             final_segs, _ = transcriber.process(audio, w_start, w_end, final=True)
-            for seg in final_segs:
-                sink.write_segment(seg)
-                view.add_final(seg)
-            view.set_provisional("")
+            emit(final_segs, "")
 
     capture.start()
     worker = threading.Thread(target=transcription_loop, daemon=True)
     worker.start()
 
-    started_at[0] = time.monotonic()
-    deadline = started_at[0] + args.duration if args.duration else None
+    deadline = time.monotonic() + args.duration if args.duration else None
     exit_reason = "stopped"
+
+    def drive(on_tick, interval):
+        # Single stop/deadline/tick driver shared by the headless and rich loops.
+        while not stop.is_set():
+            if deadline is not None and time.monotonic() >= deadline:
+                break
+            on_tick()
+            time.sleep(interval)
 
     try:
         if args.no_ui:
-            while not stop.is_set():
-                if deadline and time.monotonic() >= deadline:
-                    break
-                stats = ring.stats()
-                if not args.quiet:
-                    print(
-                        f"audio in RAM: {stats['fill_seconds']:.1f}s / "
-                        f"{stats['max_seconds']:.0f}s | oldest {stats['oldest_age_seconds']:.1f}s "
-                        f"| finalized {sink.count} | audio bytes to disk: 0 (by design)",
-                        flush=True,
-                    )
-                time.sleep(0.5)
+            def tick():
+                if args.quiet:
+                    return
+                s = ring.stats()
+                print(
+                    f"audio in RAM: {s['fill_seconds']:.1f}s / {s['max_seconds']:.0f}s "
+                    f"| oldest {s['oldest_age_seconds']:.1f}s | finalized {sink.count} "
+                    f"| audio bytes to disk: 0 (by design)",
+                    flush=True,
+                )
+            drive(tick, 0.5)
         else:
             from rich.live import Live
 
             with Live(view.render(), refresh_per_second=8, screen=False) as live:
-                while not stop.is_set():
-                    if deadline and time.monotonic() >= deadline:
-                        break
+                def tick():
                     view.update_stats(ring.stats(), capture.last_rms, str(sink.path))
                     live.update(view.render())
-                    time.sleep(0.1)
+                drive(tick, 0.1)
     except KeyboardInterrupt:
         exit_reason = "Ctrl+C"
     finally:
         stop.set()
-        worker.join(timeout=TRANSCRIBE_EVERY + 1.0)
+        # Wait for the worker to fully exit before the final pass. Once `stop` is
+        # set it returns right after its current transcribe, so this join is
+        # bounded in practice — and it guarantees final_flush() has sole access
+        # to the transcriber and sink, so segments can't race or duplicate.
+        worker.join()
         capture.stop()
         # One last pass so trailing speech is not lost, then wipe the RAM buffer.
         try:

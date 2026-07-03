@@ -13,6 +13,8 @@ import threading
 
 import numpy as np
 
+from .config import MAX_SECONDS, SAMPLE_RATE
+
 
 class RingBuffer:
     """A thread-safe, fixed-capacity ring of float32 audio samples.
@@ -21,16 +23,21 @@ class RingBuffer:
     around; the buffer never holds more than `max_seconds` of audio.
     """
 
-    def __init__(self, sample_rate: int = 16000, max_seconds: float = 30.0):
+    def __init__(self, sample_rate: int = SAMPLE_RATE, max_seconds: float = MAX_SECONDS):
         self.sample_rate = sample_rate
         self.max_seconds = max_seconds
         self.capacity = int(round(sample_rate * max_seconds))
         # Preallocated. This is the only place audio samples ever live.
         self._buf = np.zeros(self.capacity, dtype=np.float32)
         self._write_pos = 0          # index of next slot to write
-        self._filled = 0             # valid samples currently in buffer (<= capacity)
-        self._total_written = 0      # monotonic count of every sample ever accepted
+        self._total_written = 0      # count of samples accepted since the last clear
         self._lock = threading.Lock()
+
+    @property
+    def _filled(self) -> int:
+        # Valid samples currently in the buffer — always derivable, never tracked
+        # as separate state that could drift from _total_written.
+        return min(self._total_written, self.capacity)
 
     def write(self, frames: np.ndarray) -> None:
         """Append mono float32 samples, overwriting the oldest as needed."""
@@ -43,7 +50,6 @@ class RingBuffer:
                 # More samples than the whole buffer: keep only the newest tail.
                 self._buf[:] = frames[-self.capacity:]
                 self._write_pos = 0
-                self._filled = self.capacity
                 self._total_written += n
                 return
             end = self._write_pos + n
@@ -54,7 +60,6 @@ class RingBuffer:
                 self._buf[self._write_pos:] = frames[:first]
                 self._buf[: n - first] = frames[first:]
             self._write_pos = end % self.capacity
-            self._filled = min(self._filled + n, self.capacity)
             self._total_written += n
 
     def snapshot(self) -> tuple[np.ndarray, float, float]:
@@ -101,4 +106,4 @@ class RingBuffer:
         with self._lock:
             self._buf.fill(0)
             self._write_pos = 0
-            self._filled = 0
+            self._total_written = 0

@@ -8,7 +8,6 @@ through which audio bytes could be written.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 
@@ -24,13 +23,12 @@ class TranscriptSink:
 
     def write_segment(self, segment) -> None:
         """Append one finalized segment as a JSON line (text only)."""
-        obj = segment.as_dict() if hasattr(segment, "as_dict") else dict(segment)
-        line = json.dumps(obj, ensure_ascii=False)
-        # Text mode, append: no binary, no audio.
+        line = json.dumps(segment.as_dict(), ensure_ascii=False)
+        # Text mode, append: no binary, no audio. Closing the handle flushes the
+        # line to the OS, so `tail`/`cat` see it live; no fsync — this demo needs
+        # a readable transcript, not crash-durability.
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(line + "\n")
-            f.flush()
-            os.fsync(f.fileno())
         self._count += 1
 
     @property

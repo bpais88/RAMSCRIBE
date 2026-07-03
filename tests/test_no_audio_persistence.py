@@ -22,16 +22,21 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from ramscribe.config import AUDIO_EXTS, SAMPLE_RATE
 from ramscribe.ring import RingBuffer
 from ramscribe.sink import TranscriptSink
 from ramscribe.stt import SlidingWindowTranscriber, StubTranscriber
 
-SAMPLE_RATE = 16000
-AUDIO_EXTS = {".wav", ".mp3", ".ogg", ".flac", ".pcm", ".npy", ".npz", ".m4a", ".aac"}
-
 
 class AudioPersistenceViolation(AssertionError):
     pass
+
+
+def _raiser(message: str):
+    """A callable that raises when invoked — used to poison audio-write APIs."""
+    def _boom(*args, **kwargs):
+        raise AudioPersistenceViolation(message)
+    return _boom
 
 
 def _make_sine(seconds: float, freq: float = 440.0) -> np.ndarray:
@@ -60,23 +65,17 @@ def guarded_open(monkeypatch):
     try:
         import soundfile  # type: ignore
 
-        monkeypatch.setattr(soundfile, "write",
-                            lambda *a, **k: (_ for _ in ()).throw(
-                                AudioPersistenceViolation("soundfile.write blocked")))
+        monkeypatch.setattr(soundfile, "write", _raiser("soundfile.write blocked"))
     except Exception:
         pass
     try:
         import scipy.io.wavfile as wavfile  # type: ignore
 
-        monkeypatch.setattr(wavfile, "write",
-                            lambda *a, **k: (_ for _ in ()).throw(
-                                AudioPersistenceViolation("wavfile.write blocked")))
+        monkeypatch.setattr(wavfile, "write", _raiser("wavfile.write blocked"))
     except Exception:
         pass
 
-    monkeypatch.setattr(np, "save",
-                        lambda *a, **k: (_ for _ in ()).throw(
-                            AudioPersistenceViolation("np.save blocked")))
+    monkeypatch.setattr(np, "save", _raiser("np.save blocked"))
     # np.ndarray.tofile is a C-level immutable attribute and cannot be patched;
     # it is covered by the static audit instead (banned pattern `.tofile(`).
     return guard

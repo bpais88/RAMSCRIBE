@@ -13,6 +13,7 @@ import time
 
 import numpy as np
 
+from .config import rms
 from .ring import RingBuffer
 
 
@@ -31,7 +32,7 @@ class MicCapture:
     def _callback(self, indata, frames, time_info, status):
         # indata: float32 (frames, channels). Downmix to mono, hand to RAM ring.
         mono = indata[:, 0] if indata.ndim > 1 else indata
-        self._last_rms = float(np.sqrt(np.mean(np.square(mono)))) if len(mono) else 0.0
+        self._last_rms = rms(mono)
         self.ring.write(mono)
 
     def start(self) -> None:
@@ -81,7 +82,7 @@ class SyntheticCapture:
             t = (np.arange(self.blocksize) + self._phase) / self.sample_rate
             block = (0.2 * np.sin(2 * math.pi * self.freq * t)).astype(np.float32)
             self._phase += self.blocksize
-            self._last_rms = float(np.sqrt(np.mean(np.square(block))))
+            self._last_rms = rms(block)
             self.ring.write(block)
             time.sleep(period)
 

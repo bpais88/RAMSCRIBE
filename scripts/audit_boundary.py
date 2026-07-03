@@ -24,12 +24,13 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+from ramscribe.config import AUDIO_EXTS  # noqa: E402 — single source for the banned-extension list
+
 # We scan the audio pipeline package. tests/ and scripts/audit_boundary.py are
 # the *enforcement* layer — they name the banned APIs on purpose (to block them),
 # so they are intentionally out of scope for the ban.
 SOURCE_DIRS = ["ramscribe"]
-
-AUDIO_EXTS = {".wav", ".mp3", ".ogg", ".flac", ".pcm", ".npy", ".m4a", ".aac", ".wma", ".aiff"}
 
 # Banned APIs / patterns. Each entry: (compiled regex, human description).
 BANNED_PATTERNS = [
