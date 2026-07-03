@@ -1,0 +1,24 @@
+# Transcripts are session output — never commit them.
+transcripts/*
+!transcripts/.gitkeep
+
+# Absolutely no audio artifacts, ever (belt and suspenders — nothing writes these).
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.pcm
+*.npy
+*.npz
+*.m4a
+*.aac
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.DS_Store
