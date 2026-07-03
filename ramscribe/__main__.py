@@ -61,6 +61,12 @@ def run(args) -> int:
     else:
         capture = MicCapture(ring, device=args.device)
 
+    if not args.stub_stt:
+        # Loading (and, on first run, downloading) the model is a silent pause of
+        # several seconds before the UI takes over — say so, or it reads as a hang.
+        print(f"Loading '{args.model}' model… "
+              f"(first run downloads weights, which can take a minute; "
+              f"then the live view opens — don't Ctrl+C)", flush=True)
     model = build_model(args)
     transcriber = SlidingWindowTranscriber(model, sample_rate=SAMPLE_RATE,
                                            overlap_s=OVERLAP_SECONDS)
